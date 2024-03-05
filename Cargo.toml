@@ -2,7 +2,6 @@
 name = "futures-bounded"
 version = "0.2.3"
 edition = "2021"
-rust-version.workspace = true
 license = "MIT"
 repository = "https://github.com/libp2p/rust-libp2p"
 keywords = ["futures", "async", "backpressure"]
@@ -19,6 +18,3 @@ futures-timer = "3.0.2"
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["macros", "rt", "sync"] }
 futures = "0.3.30"
-
-[lints]
-workspace = true
