@@ -83,6 +83,10 @@ where
         Some(inner)
     }
 
+    pub fn contains(&self, id: ID) -> bool {
+        self.inner.iter().any(|f| f.tag == id && !f.inner.cancelled)
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -265,6 +269,15 @@ mod tests {
         let duration = start.elapsed();
 
         assert!(duration >= DELAY * NUM_FUTURES);
+    }
+
+    #[test]
+    fn contains() {
+        let mut futures = FuturesMap::new(Duration::from_secs(10), 1);
+        _ = futures.try_push("ID", pending::<()>());
+        assert!(futures.contains("ID"));
+        _ = futures.remove("ID");
+        assert!(!futures.contains("ID"));
     }
 
     struct Task {
