@@ -1,3 +1,8 @@
+## 0.2.4
+
+- Add `FuturesMap.contains()`.
+  See [PR 3](https://github.com/thomaseizinger/rust-futures-bounded/pull/3).
+
 ## 0.2.3
 
 - Introduce `FuturesTupleSet`, holding tuples of a `Future` together with an arbitrary piece of data.
