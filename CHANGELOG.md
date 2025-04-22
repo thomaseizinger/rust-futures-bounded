@@ -1,3 +1,7 @@
+## Unreleased
+
+- Allow for multiple timer implementations.
+
 ## 0.2.4
 
 - Add `FuturesMap.contains()`.

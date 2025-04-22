@@ -5,18 +5,17 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 use std::{future, mem};
 
-use futures_timer::Delay;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{FutureExt, StreamExt};
 
-use crate::{PushError, Timeout};
+use crate::{Delay, PushError, Timeout};
 
 /// Represents a map of [`Future`]s.
 ///
 /// Each future must finish within the specified time and the map never outgrows its capacity.
 pub struct FuturesMap<ID, O> {
-    timeout: Duration,
+    make_delay: Box<dyn Fn() -> Delay + Send + Sync>,
     capacity: usize,
     inner: FuturesUnordered<TaggedFuture<ID, TimeoutFuture<BoxFuture<'static, O>>>>,
     empty_waker: Option<Waker>,
@@ -24,9 +23,9 @@ pub struct FuturesMap<ID, O> {
 }
 
 impl<ID, O> FuturesMap<ID, O> {
-    pub fn new(timeout: Duration, capacity: usize) -> Self {
+    pub fn new(make_delay: impl Fn() -> Delay + Send + Sync + 'static, capacity: usize) -> Self {
         Self {
-            timeout,
+            make_delay: Box::new(make_delay),
             capacity,
             inner: Default::default(),
             empty_waker: None,
@@ -64,7 +63,7 @@ where
             tag: future_id,
             inner: TimeoutFuture {
                 inner: future.boxed(),
-                timeout: Delay::new(self.timeout),
+                timeout: (self.make_delay)(),
                 cancelled: false,
             },
         });
@@ -116,8 +115,8 @@ where
                     return Poll::Pending;
                 }
                 Some((id, Ok(output))) => return Poll::Ready((id, Ok(output))),
-                Some((id, Err(TimeoutError::Timeout))) => {
-                    return Poll::Ready((id, Err(Timeout::new(self.timeout))))
+                Some((id, Err(TimeoutError::Timeout(dur)))) => {
+                    return Poll::Ready((id, Err(Timeout::new(dur))))
                 }
                 Some((_, Err(TimeoutError::Cancelled))) => continue,
             }
@@ -143,8 +142,8 @@ where
             return Poll::Ready(Err(TimeoutError::Cancelled));
         }
 
-        if self.timeout.poll_unpin(cx).is_ready() {
-            return Poll::Ready(Err(TimeoutError::Timeout));
+        if let Poll::Ready(duration) = self.timeout.poll_unpin(cx) {
+            return Poll::Ready(Err(TimeoutError::Timeout(duration)));
         }
 
         self.inner.poll_unpin(cx).map(Ok)
@@ -152,7 +151,7 @@ where
 }
 
 enum TimeoutError {
-    Timeout,
+    Timeout(Duration),
     Cancelled,
 }
 
@@ -175,7 +174,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "futures-timer"))]
 mod tests {
     use futures::channel::oneshot;
     use futures_util::task::noop_waker_ref;
@@ -187,7 +186,7 @@ mod tests {
 
     #[test]
     fn cannot_push_more_than_capacity_tasks() {
-        let mut futures = FuturesMap::new(Duration::from_secs(10), 1);
+        let mut futures = FuturesMap::new(|| Delay::futures_timer(Duration::from_secs(10)), 1);
 
         assert!(futures.try_push("ID_1", ready(())).is_ok());
         matches!(
@@ -198,7 +197,7 @@ mod tests {
 
     #[test]
     fn cannot_push_the_same_id_few_times() {
-        let mut futures = FuturesMap::new(Duration::from_secs(10), 5);
+        let mut futures = FuturesMap::new(|| Delay::futures_timer(Duration::from_secs(10)), 5);
 
         assert!(futures.try_push("ID", ready(())).is_ok());
         matches!(
@@ -209,10 +208,10 @@ mod tests {
 
     #[tokio::test]
     async fn futures_timeout() {
-        let mut futures = FuturesMap::new(Duration::from_millis(100), 1);
+        let mut futures = FuturesMap::new(|| Delay::futures_timer(Duration::from_millis(100)), 1);
 
         let _ = futures.try_push("ID", pending::<()>());
-        Delay::new(Duration::from_millis(150)).await;
+        futures_timer::Delay::new(Duration::from_millis(150)).await;
         let (_, result) = poll_fn(|cx| futures.poll_unpin(cx)).await;
 
         assert!(result.is_err())
@@ -220,7 +219,7 @@ mod tests {
 
     #[test]
     fn resources_of_removed_future_are_cleaned_up() {
-        let mut futures = FuturesMap::new(Duration::from_millis(100), 1);
+        let mut futures = FuturesMap::new(|| Delay::futures_timer(Duration::from_millis(100)), 1);
 
         let _ = futures.try_push("ID", pending::<()>());
         futures.remove("ID");
@@ -233,7 +232,7 @@ mod tests {
 
     #[tokio::test]
     async fn replaced_pending_future_is_polled() {
-        let mut streams = FuturesMap::new(Duration::from_millis(100), 3);
+        let mut streams = FuturesMap::new(|| Delay::futures_timer(Duration::from_millis(100)), 3);
 
         let (_tx1, rx1) = oneshot::channel();
         let (tx2, rx2) = oneshot::channel();
@@ -273,7 +272,7 @@ mod tests {
 
     #[test]
     fn contains() {
-        let mut futures = FuturesMap::new(Duration::from_secs(10), 1);
+        let mut futures = FuturesMap::new(|| Delay::futures_timer(Duration::from_secs(10)), 1);
         _ = futures.try_push("ID", pending::<()>());
         assert!(futures.contains("ID"));
         _ = futures.remove("ID");
@@ -293,7 +292,7 @@ mod tests {
                 future,
                 num_futures: num_futures as usize,
                 num_processed: 0,
-                inner: FuturesMap::new(Duration::from_secs(60), capacity),
+                inner: FuturesMap::new(|| Delay::futures_timer(Duration::from_secs(60)), capacity),
             }
         }
     }
@@ -317,7 +316,9 @@ mod tests {
                 if let Poll::Ready(()) = this.inner.poll_ready_unpin(cx) {
                     // We push the constant future's ID to prove that user can use the same ID
                     // if the future was finished
-                    let maybe_future = this.inner.try_push(1u8, Delay::new(this.future));
+                    let maybe_future = this
+                        .inner
+                        .try_push(1u8, futures_timer::Delay::new(this.future));
                     assert!(maybe_future.is_ok(), "we polled for readiness");
 
                     continue;

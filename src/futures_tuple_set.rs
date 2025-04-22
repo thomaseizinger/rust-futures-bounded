@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::task::{ready, Context, Poll};
-use std::time::Duration;
 
 use futures_util::future::BoxFuture;
 
-use crate::{FuturesMap, PushError, Timeout};
+use crate::{Delay, FuturesMap, PushError, Timeout};
 
 /// Represents a list of tuples of a [Future] and an associated piece of data.
 ///
@@ -17,10 +16,10 @@ pub struct FuturesTupleSet<O, D> {
 }
 
 impl<O, D> FuturesTupleSet<O, D> {
-    pub fn new(timeout: Duration, capacity: usize) -> Self {
+    pub fn new(make_delay: impl Fn() -> Delay + Send + Sync + 'static, capacity: usize) -> Self {
         Self {
             id: 0,
-            inner: FuturesMap::new(timeout, capacity),
+            inner: FuturesMap::new(make_delay, capacity),
             data: HashMap::new(),
         }
     }
@@ -77,10 +76,11 @@ mod tests {
     use futures_util::future::poll_fn;
     use futures_util::FutureExt;
     use std::future::ready;
+    use std::time::Duration;
 
     #[test]
     fn tracks_associated_data_of_future() {
-        let mut set = FuturesTupleSet::new(Duration::from_secs(10), 10);
+        let mut set = FuturesTupleSet::new(|| Delay::futures_timer(Duration::from_secs(10)), 10);
 
         let _ = set.try_push(ready(1), 1);
         let _ = set.try_push(ready(2), 2);

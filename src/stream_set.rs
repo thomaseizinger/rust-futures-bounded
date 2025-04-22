@@ -1,9 +1,8 @@
 use futures_util::stream::BoxStream;
 use futures_util::Stream;
 use std::task::{ready, Context, Poll};
-use std::time::Duration;
 
-use crate::{PushError, StreamMap, Timeout};
+use crate::{Delay, PushError, StreamMap, Timeout};
 
 /// Represents a set of [Stream]s.
 ///
@@ -14,10 +13,10 @@ pub struct StreamSet<O> {
 }
 
 impl<O> StreamSet<O> {
-    pub fn new(timeout: Duration, capacity: usize) -> Self {
+    pub fn new(make_delay: impl Fn() -> Delay + Send + Sync + 'static, capacity: usize) -> Self {
         Self {
             id: 0,
-            inner: StreamMap::new(timeout, capacity),
+            inner: StreamMap::new(make_delay, capacity),
         }
     }
 }
