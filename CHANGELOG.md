@@ -1,6 +1,7 @@
-## Unreleased
+## 0.3.0
 
 - Allow for multiple timer implementations.
+  See [PR 5](https://github.com/thomaseizinger/rust-futures-bounded/pull/5).
 
 ## 0.2.4
 
@@ -15,7 +16,7 @@
 ## 0.2.2
 
 - Fix an issue where `{Futures,Stream}Map` returns `Poll::Pending` despite being ready after an item has been replaced as part of `try_push`.
-  See [PR 4865](https://github.com/libp2p/rust-libp2p/pull/4865). 
+  See [PR 4865](https://github.com/libp2p/rust-libp2p/pull/4865).
 
 ## 0.2.1
 
