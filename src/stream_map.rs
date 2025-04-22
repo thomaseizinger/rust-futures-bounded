@@ -3,17 +3,16 @@ use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use futures_timer::Delay;
 use futures_util::stream::{BoxStream, SelectAll};
 use futures_util::{stream, FutureExt, Stream, StreamExt};
 
-use crate::{PushError, Timeout};
+use crate::{Delay, PushError, Timeout};
 
 /// Represents a map of [`Stream`]s.
 ///
 /// Each stream must finish within the specified time and the map never outgrows its capacity.
 pub struct StreamMap<ID, O> {
-    timeout: Duration,
+    make_delay: Box<dyn Fn() -> Delay + Send + Sync>,
     capacity: usize,
     inner: SelectAll<TaggedStream<ID, TimeoutStream<BoxStream<'static, O>>>>,
     empty_waker: Option<Waker>,
@@ -24,9 +23,9 @@ impl<ID, O> StreamMap<ID, O>
 where
     ID: Clone + Unpin,
 {
-    pub fn new(timeout: Duration, capacity: usize) -> Self {
+    pub fn new(make_delay: impl Fn() -> Delay + Send + Sync + 'static, capacity: usize) -> Self {
         Self {
-            timeout,
+            make_delay: Box::new(make_delay),
             capacity,
             inner: Default::default(),
             empty_waker: None,
@@ -58,7 +57,7 @@ where
             id,
             TimeoutStream {
                 inner: stream.boxed(),
-                timeout: Delay::new(self.timeout),
+                timeout: (self.make_delay)(),
             },
         ));
 
@@ -106,10 +105,10 @@ where
                 Poll::Pending
             }
             Some((id, Some(Ok(output)))) => Poll::Ready((id, Some(Ok(output)))),
-            Some((id, Some(Err(())))) => {
+            Some((id, Some(Err(dur)))) => {
                 self.remove(id.clone()); // Remove stream, otherwise we keep reporting the timeout.
 
-                Poll::Ready((id, Some(Err(Timeout::new(self.timeout)))))
+                Poll::Ready((id, Some(Err(Timeout::new(dur)))))
             }
             Some((id, None)) => Poll::Ready((id, None)),
         }
@@ -125,11 +124,11 @@ impl<F> Stream for TimeoutStream<F>
 where
     F: Stream + Unpin,
 {
-    type Item = Result<F::Item, ()>;
+    type Item = Result<F::Item, Duration>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.timeout.poll_unpin(cx).is_ready() {
-            return Poll::Ready(Some(Err(())));
+        if let Poll::Ready(dur) = self.timeout.poll_unpin(cx) {
+            return Poll::Ready(Some(Err(dur)));
         }
 
         self.inner.poll_next_unpin(cx).map(|a| a.map(Ok))
@@ -176,7 +175,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "futures-timer"))]
 mod tests {
     use futures::channel::mpsc;
     use futures_util::stream::{once, pending};
@@ -189,7 +188,7 @@ mod tests {
 
     #[test]
     fn cannot_push_more_than_capacity_tasks() {
-        let mut streams = StreamMap::new(Duration::from_secs(10), 1);
+        let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_secs(10)), 1);
 
         assert!(streams.try_push("ID_1", once(ready(()))).is_ok());
         matches!(
@@ -200,7 +199,7 @@ mod tests {
 
     #[test]
     fn cannot_push_the_same_id_few_times() {
-        let mut streams = StreamMap::new(Duration::from_secs(10), 5);
+        let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_secs(10)), 5);
 
         assert!(streams.try_push("ID", once(ready(()))).is_ok());
         matches!(
@@ -211,10 +210,10 @@ mod tests {
 
     #[tokio::test]
     async fn streams_timeout() {
-        let mut streams = StreamMap::new(Duration::from_millis(100), 1);
+        let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_millis(100)), 1);
 
         let _ = streams.try_push("ID", pending::<()>());
-        Delay::new(Duration::from_millis(150)).await;
+        futures_timer::Delay::new(Duration::from_millis(150)).await;
         let (_, result) = poll_fn(|cx| streams.poll_next_unpin(cx)).await;
 
         assert!(result.unwrap().is_err())
@@ -222,10 +221,10 @@ mod tests {
 
     #[tokio::test]
     async fn timed_out_stream_gets_removed() {
-        let mut streams = StreamMap::new(Duration::from_millis(100), 1);
+        let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_millis(100)), 1);
 
         let _ = streams.try_push("ID", pending::<()>());
-        Delay::new(Duration::from_millis(150)).await;
+        futures_timer::Delay::new(Duration::from_millis(150)).await;
         poll_fn(|cx| streams.poll_next_unpin(cx)).await;
 
         let poll = streams.poll_next_unpin(&mut Context::from_waker(
@@ -236,7 +235,7 @@ mod tests {
 
     #[test]
     fn removing_stream() {
-        let mut streams = StreamMap::new(Duration::from_millis(100), 1);
+        let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_millis(100)), 1);
 
         let _ = streams.try_push("ID", stream::once(ready(())));
 
@@ -259,7 +258,7 @@ mod tests {
 
     #[tokio::test]
     async fn replaced_stream_is_still_registered() {
-        let mut streams = StreamMap::new(Duration::from_millis(100), 3);
+        let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_millis(100)), 3);
 
         let (mut tx1, rx1) = mpsc::channel(5);
         let (mut tx2, rx2) = mpsc::channel(5);
@@ -318,7 +317,7 @@ mod tests {
                 item_delay,
                 num_streams: num_streams as usize,
                 num_processed: 0,
-                inner: StreamMap::new(Duration::from_secs(60), capacity),
+                inner: StreamMap::new(|| Delay::futures_timer(Duration::from_secs(60)), capacity),
             }
         }
     }
@@ -347,7 +346,9 @@ mod tests {
 
                 if let Poll::Ready(()) = this.inner.poll_ready_unpin(cx) {
                     // We push the constant ID to prove that user can use the same ID if the stream was finished
-                    let maybe_future = this.inner.try_push(1u8, once(Delay::new(this.item_delay)));
+                    let maybe_future = this
+                        .inner
+                        .try_push(1u8, once(futures_timer::Delay::new(this.item_delay)));
                     assert!(maybe_future.is_ok(), "we polled for readiness");
 
                     continue;

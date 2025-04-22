@@ -1,10 +1,9 @@
 use std::future::Future;
 use std::task::{ready, Context, Poll};
-use std::time::Duration;
 
 use futures_util::future::BoxFuture;
 
-use crate::{FuturesMap, PushError, Timeout};
+use crate::{Delay, FuturesMap, PushError, Timeout};
 
 /// Represents a list of [Future]s.
 ///
@@ -15,10 +14,10 @@ pub struct FuturesSet<O> {
 }
 
 impl<O> FuturesSet<O> {
-    pub fn new(timeout: Duration, capacity: usize) -> Self {
+    pub fn new(make_delay: impl Fn() -> Delay + Send + Sync + 'static, capacity: usize) -> Self {
         Self {
             id: 0,
-            inner: FuturesMap::new(timeout, capacity),
+            inner: FuturesMap::new(make_delay, capacity),
         }
     }
 }

@@ -1,9 +1,11 @@
+mod delay;
 mod futures_map;
 mod futures_set;
 mod futures_tuple_set;
 mod stream_map;
 mod stream_set;
 
+pub use delay::Delay;
 pub use futures_map::FuturesMap;
 pub use futures_set::FuturesSet;
 pub use futures_tuple_set::FuturesTupleSet;
