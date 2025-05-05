@@ -1,10 +1,9 @@
-use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use futures_util::stream::{BoxStream, SelectAll};
-use futures_util::{stream, FutureExt, Stream, StreamExt};
+use futures_util::{FutureExt, Stream, StreamExt};
 
 use crate::{Delay, PushError, Timeout};
 
@@ -69,11 +68,8 @@ where
 
     pub fn remove(&mut self, id: ID) -> Option<BoxStream<'static, O>> {
         let tagged = self.inner.iter_mut().find(|s| s.key == id)?;
-
-        let inner = mem::replace(&mut tagged.inner.inner, stream::pending().boxed());
-        tagged.exhausted = true; // Setting this will emit `None` on the next poll and ensure `SelectAll` cleans up the resources.
-
-        Some(inner)
+        let inner = tagged.inner.take()?; // `TaggedStream` will emit `None` on the next poll and ensure `SelectAll` cleans up the resources.
+        Some(inner.inner)
     }
 
     pub fn len(&self) -> usize {
@@ -137,17 +133,14 @@ where
 
 struct TaggedStream<K, S> {
     key: K,
-    inner: S,
-
-    exhausted: bool,
+    inner: Option<S>,
 }
 
 impl<K, S> TaggedStream<K, S> {
     fn new(key: K, inner: S) -> Self {
         Self {
             key,
-            inner,
-            exhausted: false,
+            inner: Some(inner),
         }
     }
 }
@@ -160,15 +153,14 @@ where
     type Item = (K, Option<S::Item>);
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.exhausted {
+        let Some(inner) = self.inner.as_mut() else {
             return Poll::Ready(None);
-        }
+        };
 
-        match futures_util::ready!(self.inner.poll_next_unpin(cx)) {
+        match futures_util::ready!(inner.poll_next_unpin(cx)) {
             Some(item) => Poll::Ready(Some((self.key.clone(), Some(item)))),
             None => {
-                self.exhausted = true;
-
+                self.inner.take();
                 Poll::Ready(Some((self.key.clone(), None)))
             }
         }
@@ -237,7 +229,7 @@ mod tests {
     fn removing_stream() {
         let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_millis(100)), 1);
 
-        let _ = streams.try_push("ID", stream::once(ready(())));
+        let _ = streams.try_push("ID", once(ready(())));
 
         {
             let cancelled_stream = streams.remove("ID");
