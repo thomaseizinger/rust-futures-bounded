@@ -9,7 +9,7 @@ pub use delay::Delay;
 pub use futures_map::FuturesMap;
 pub use futures_set::FuturesSet;
 pub use futures_tuple_set::FuturesTupleSet;
-pub use stream_map::StreamMap;
+pub use stream_map::{StreamMap, StreamMapIterable};
 pub use stream_set::StreamSet;
 
 use std::fmt;
