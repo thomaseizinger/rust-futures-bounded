@@ -1,8 +1,6 @@
-use futures_util::stream::BoxStream;
-use futures_util::Stream;
 use std::task::{ready, Context, Poll};
 
-use crate::{Delay, PushError, StreamMap, Timeout};
+use crate::{AnyStream, BoxStream, Delay, PushError, StreamMap, Timeout};
 
 /// Represents a set of [Stream]s.
 ///
@@ -32,7 +30,7 @@ where
     /// In that case, the stream is not added to the set.
     pub fn try_push<F>(&mut self, stream: F) -> Result<(), BoxStream<O>>
     where
-        F: Stream<Item = O> + Send + 'static,
+        F: AnyStream<Item = O>,
     {
         self.id = self.id.wrapping_add(1);
 

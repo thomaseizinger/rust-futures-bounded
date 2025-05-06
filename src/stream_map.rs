@@ -1,12 +1,13 @@
+use std::any::Any;
 use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use futures_util::stream::{BoxStream, SelectAll};
+use futures_util::stream::SelectAll;
 use futures_util::{stream, FutureExt, Stream, StreamExt};
 
-use crate::{Delay, PushError, Timeout};
+use crate::{AnyStream, BoxStream, Delay, PushError, Timeout};
 
 /// Represents a map of [`Stream`]s.
 ///
@@ -14,7 +15,7 @@ use crate::{Delay, PushError, Timeout};
 pub struct StreamMap<ID, O> {
     make_delay: Box<dyn Fn() -> Delay + Send + Sync>,
     capacity: usize,
-    inner: SelectAll<TaggedStream<ID, TimeoutStream<BoxStream<'static, O>>>>,
+    inner: SelectAll<TaggedStream<ID, TimeoutStream<BoxStream<O>>>>,
     empty_waker: Option<Waker>,
     full_waker: Option<Waker>,
 }
@@ -42,10 +43,10 @@ where
     /// Push a stream into the map.
     pub fn try_push<F>(&mut self, id: ID, stream: F) -> Result<(), PushError<BoxStream<O>>>
     where
-        F: Stream<Item = O> + Send + 'static,
+        F: AnyStream<Item = O>,
     {
         if self.inner.len() >= self.capacity {
-            return Err(PushError::BeyondCapacity(stream.boxed()));
+            return Err(PushError::BeyondCapacity(Box::pin(stream)));
         }
 
         if let Some(waker) = self.empty_waker.take() {
@@ -56,7 +57,7 @@ where
         self.inner.push(TaggedStream::new(
             id,
             TimeoutStream {
-                inner: stream.boxed(),
+                inner: Box::pin(stream),
                 timeout: (self.make_delay)(),
             },
         ));
@@ -67,10 +68,10 @@ where
         }
     }
 
-    pub fn remove(&mut self, id: ID) -> Option<BoxStream<'static, O>> {
+    pub fn remove(&mut self, id: ID) -> Option<BoxStream<O>> {
         let tagged = self.inner.iter_mut().find(|s| s.key == id)?;
 
-        let inner = mem::replace(&mut tagged.inner.inner, stream::pending().boxed());
+        let inner = mem::replace(&mut tagged.inner.inner, Box::pin(stream::pending()));
         tagged.exhausted = true; // Setting this will emit `None` on the next poll and ensure `SelectAll` cleans up the resources.
 
         Some(inner)
@@ -112,6 +113,21 @@ where
             }
             Some((id, None)) => Poll::Ready((id, None)),
         }
+    }
+
+    pub fn iter<T>(&self) -> impl Iterator<Item = (&ID, &T)>
+    where
+        T: 'static,
+    {
+        self.inner.iter().filter_map(|a| {
+            let pin = a.inner.inner.as_ref();
+            let pin = pin as Pin<&(dyn Any + Unpin + Send)>;
+            let any = Pin::into_inner(pin) as &(dyn Any + Send);
+
+            let inner = any.downcast_ref::<T>()?;
+
+            Some((&a.key, inner))
+        })
     }
 }
 
@@ -302,6 +318,26 @@ mod tests {
         let duration = start.elapsed();
 
         assert!(duration >= DELAY * NUM_STREAMS);
+    }
+
+    #[test]
+    fn can_iter_named_streams() {
+        let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_millis(100)), 3);
+
+        streams.try_push("1", FooStream).unwrap();
+        streams.try_push("2", FooStream).unwrap();
+
+        assert_eq!(streams.iter::<FooStream>().count(), 2)
+    }
+
+    struct FooStream;
+
+    impl Stream for FooStream {
+        type Item = ();
+
+        fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            todo!()
+        }
     }
 
     struct Task {
