@@ -337,22 +337,25 @@ mod tests {
 
     #[test]
     fn can_iter_named_streams() {
-        let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_millis(100)), 3);
-
-        streams.try_push("1", FooStream).unwrap();
-        streams.try_push("2", FooStream).unwrap();
-
-        assert_eq!(streams.iter_typed::<FooStream>().count(), 2)
-    }
-
-    struct FooStream;
-
-    impl Stream for FooStream {
-        type Item = ();
-
-        fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-            todo!()
+        const N: usize = 10;
+        let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_millis(100)), N);
+        let mut sender = Vec::with_capacity(N);
+        for i in 0..N {
+            let (tx, rx) = mpsc::channel::<()>(1);
+            streams.try_push(format!("ID{i}"), rx).unwrap();
+            sender.push(tx);
         }
+        assert_eq!(streams.iter_typed::<mpsc::Receiver<()>>().count(), N);
+        for (i, (id, _)) in streams.iter_typed::<mpsc::Receiver<()>>().enumerate() {
+            let expect_id = format!("ID{}", N - i - 1); // Reverse order.
+            assert_eq!(id, &expect_id);
+        }
+        assert!(!sender.iter().any(|tx| tx.is_closed()));
+
+        for (_, rx) in streams.iter_mut_typed::<mpsc::Receiver<()>>() {
+            rx.close();
+        }
+        assert!(sender.iter().all(|tx| tx.is_closed()));
     }
 
     struct Task {
