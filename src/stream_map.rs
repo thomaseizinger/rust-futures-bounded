@@ -115,7 +115,7 @@ where
         }
     }
 
-    /// Returns an iterator over all streams whose inner type is `T`.
+    /// Returns an iterator over all streams of type `T` pushed via [`StreamMap::try_push`].
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
     pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&ID, &T)>
@@ -130,7 +130,8 @@ where
         })
     }
 
-    /// Returns an iterator with mutable access over all streams whose inner type is `T`.
+    /// Returns an iterator with mutable access over all streams of type `T`
+    /// pushed via [`StreamMap::try_push`].
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
     pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&mut ID, &mut T)>
