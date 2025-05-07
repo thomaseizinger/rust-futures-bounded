@@ -61,7 +61,6 @@ where
 
     /// Returns an iterator over all streams of type `T` pushed via [`StreamSet::try_push`].
     ///
-    ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
     pub fn iter_of_type<T>(&self) -> impl Iterator<Item = &T>
     where
