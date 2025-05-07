@@ -118,7 +118,7 @@ where
     /// Returns an iterator over all streams whose inner type is `T`.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
-    pub fn iter_typed<T>(&self) -> impl Iterator<Item = (&ID, &T)>
+    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&ID, &T)>
     where
         T: 'static,
     {
@@ -133,7 +133,7 @@ where
     /// Returns an iterator with mutable access over all streams whose inner type is `T`.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
-    pub fn iter_mut_typed<T>(&mut self) -> impl Iterator<Item = (&mut ID, &mut T)>
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&mut ID, &mut T)>
     where
         T: 'static,
     {
@@ -345,14 +345,14 @@ mod tests {
             streams.try_push(format!("ID{i}"), rx).unwrap();
             sender.push(tx);
         }
-        assert_eq!(streams.iter_typed::<mpsc::Receiver<()>>().count(), N);
-        for (i, (id, _)) in streams.iter_typed::<mpsc::Receiver<()>>().enumerate() {
+        assert_eq!(streams.iter_of_type::<mpsc::Receiver<()>>().count(), N);
+        for (i, (id, _)) in streams.iter_of_type::<mpsc::Receiver<()>>().enumerate() {
             let expect_id = format!("ID{}", N - i - 1); // Reverse order.
             assert_eq!(id, &expect_id);
         }
         assert!(!sender.iter().any(|tx| tx.is_closed()));
 
-        for (_, rx) in streams.iter_mut_typed::<mpsc::Receiver<()>>() {
+        for (_, rx) in streams.iter_mut_of_type::<mpsc::Receiver<()>>() {
             rx.close();
         }
         assert!(sender.iter().all(|tx| tx.is_closed()));

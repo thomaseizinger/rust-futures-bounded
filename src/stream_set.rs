@@ -62,20 +62,20 @@ where
     /// Returns an iterator over all streams whose inner type is `T`.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
-    pub fn iter_typed<T>(&self) -> impl Iterator<Item = &T>
+    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = &T>
     where
         T: 'static,
     {
-        self.inner.iter_typed().map(|(_, item)| item)
+        self.inner.iter_of_type().map(|(_, item)| item)
     }
 
     /// Returns an iterator with mutable access over all streams whose inner type is `T`.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
-    pub fn iter_mut_typed<T>(&mut self) -> impl Iterator<Item = &mut T>
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = &mut T>
     where
         T: 'static,
     {
-        self.inner.iter_mut_typed().map(|(_, item)| item)
+        self.inner.iter_mut_of_type().map(|(_, item)| item)
     }
 }
