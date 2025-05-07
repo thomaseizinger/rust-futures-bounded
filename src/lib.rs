@@ -12,8 +12,10 @@ pub use futures_tuple_set::FuturesTupleSet;
 pub use stream_map::StreamMap;
 pub use stream_set::StreamSet;
 
+use std::any::Any;
 use std::fmt;
 use std::fmt::Formatter;
+use std::pin::Pin;
 use std::time::Duration;
 
 /// A future failed to complete within the given timeout.
@@ -35,7 +37,7 @@ impl fmt::Display for Timeout {
 }
 
 /// Error of a future pushing
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq)]
 pub enum PushError<T> {
     /// The length of the set is equal to the capacity
     BeyondCapacity(T),
@@ -45,4 +47,20 @@ pub enum PushError<T> {
     Replaced(T),
 }
 
+impl<T> fmt::Debug for PushError<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BeyondCapacity(_) => f.debug_tuple("BeyondCapacity").finish(),
+            Self::Replaced(_) => f.debug_tuple("Replaced").finish(),
+        }
+    }
+}
+
 impl std::error::Error for Timeout {}
+
+#[doc(hidden)]
+pub trait AnyStream: futures_util::Stream + Any + Unpin + Send {}
+
+impl<T> AnyStream for T where T: futures_util::Stream + Any + Unpin + Send {}
+
+type BoxStream<T> = Pin<Box<dyn AnyStream<Item = T> + Send>>;

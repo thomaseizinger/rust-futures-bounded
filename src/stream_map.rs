@@ -1,12 +1,13 @@
+use std::any::Any;
 use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use futures_util::stream::{BoxStream, SelectAll};
+use futures_util::stream::SelectAll;
 use futures_util::{stream, FutureExt, Stream, StreamExt};
 
-use crate::{Delay, PushError, Timeout};
+use crate::{AnyStream, BoxStream, Delay, PushError, Timeout};
 
 /// Represents a map of [`Stream`]s.
 ///
@@ -14,7 +15,7 @@ use crate::{Delay, PushError, Timeout};
 pub struct StreamMap<ID, O> {
     make_delay: Box<dyn Fn() -> Delay + Send + Sync>,
     capacity: usize,
-    inner: SelectAll<TaggedStream<ID, TimeoutStream<BoxStream<'static, O>>>>,
+    inner: SelectAll<TaggedStream<ID, TimeoutStream<BoxStream<O>>>>,
     empty_waker: Option<Waker>,
     full_waker: Option<Waker>,
 }
@@ -42,10 +43,10 @@ where
     /// Push a stream into the map.
     pub fn try_push<F>(&mut self, id: ID, stream: F) -> Result<(), PushError<BoxStream<O>>>
     where
-        F: Stream<Item = O> + Send + 'static,
+        F: AnyStream<Item = O>,
     {
         if self.inner.len() >= self.capacity {
-            return Err(PushError::BeyondCapacity(stream.boxed()));
+            return Err(PushError::BeyondCapacity(Box::pin(stream)));
         }
 
         if let Some(waker) = self.empty_waker.take() {
@@ -56,7 +57,7 @@ where
         self.inner.push(TaggedStream::new(
             id,
             TimeoutStream {
-                inner: stream.boxed(),
+                inner: Box::pin(stream),
                 timeout: (self.make_delay)(),
             },
         ));
@@ -67,10 +68,10 @@ where
         }
     }
 
-    pub fn remove(&mut self, id: ID) -> Option<BoxStream<'static, O>> {
+    pub fn remove(&mut self, id: ID) -> Option<BoxStream<O>> {
         let tagged = self.inner.iter_mut().find(|s| s.key == id)?;
 
-        let inner = mem::replace(&mut tagged.inner.inner, stream::pending().boxed());
+        let inner = mem::replace(&mut tagged.inner.inner, Box::pin(stream::pending()));
         tagged.exhausted = true; // Setting this will emit `None` on the next poll and ensure `SelectAll` cleans up the resources.
 
         Some(inner)
@@ -112,6 +113,37 @@ where
             }
             Some((id, None)) => Poll::Ready((id, None)),
         }
+    }
+
+    /// Returns an iterator over all streams of type `T` pushed via [`StreamMap::try_push`].
+    ///
+    /// If downcasting a stream to `T` fails it will be skipped in the iterator.
+    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&ID, &T)>
+    where
+        T: 'static,
+    {
+        self.inner.iter().filter_map(|a| {
+            let pin = a.inner.inner.as_ref();
+            let any = Pin::into_inner(pin) as &(dyn Any + Send);
+            let inner = any.downcast_ref::<T>()?;
+            Some((&a.key, inner))
+        })
+    }
+
+    /// Returns an iterator with mutable access over all streams of type `T`
+    /// pushed via [`StreamMap::try_push`].
+    ///
+    /// If downcasting a stream to `T` fails it will be skipped in the iterator.
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&mut ID, &mut T)>
+    where
+        T: 'static,
+    {
+        self.inner.iter_mut().filter_map(|a| {
+            let pin = a.inner.inner.as_mut();
+            let any = Pin::into_inner(pin) as &mut (dyn Any + Send);
+            let inner = any.downcast_mut::<T>()?;
+            Some((&mut a.key, inner))
+        })
     }
 }
 
@@ -302,6 +334,29 @@ mod tests {
         let duration = start.elapsed();
 
         assert!(duration >= DELAY * NUM_STREAMS);
+    }
+
+    #[test]
+    fn can_iter_named_streams() {
+        const N: usize = 10;
+        let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_millis(100)), N);
+        let mut sender = Vec::with_capacity(N);
+        for i in 0..N {
+            let (tx, rx) = mpsc::channel::<()>(1);
+            streams.try_push(format!("ID{i}"), rx).unwrap();
+            sender.push(tx);
+        }
+        assert_eq!(streams.iter_of_type::<mpsc::Receiver<()>>().count(), N);
+        for (i, (id, _)) in streams.iter_of_type::<mpsc::Receiver<()>>().enumerate() {
+            let expect_id = format!("ID{}", N - i - 1); // Reverse order.
+            assert_eq!(id, &expect_id);
+        }
+        assert!(!sender.iter().any(|tx| tx.is_closed()));
+
+        for (_, rx) in streams.iter_mut_of_type::<mpsc::Receiver<()>>() {
+            rx.close();
+        }
+        assert!(sender.iter().all(|tx| tx.is_closed()));
     }
 
     struct Task {

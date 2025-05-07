@@ -1,8 +1,6 @@
-use futures_util::stream::BoxStream;
-use futures_util::Stream;
 use std::task::{ready, Context, Poll};
 
-use crate::{Delay, PushError, StreamMap, Timeout};
+use crate::{AnyStream, BoxStream, Delay, PushError, StreamMap, Timeout};
 
 /// Represents a set of [Stream]s.
 ///
@@ -32,7 +30,7 @@ where
     /// In that case, the stream is not added to the set.
     pub fn try_push<F>(&mut self, stream: F) -> Result<(), BoxStream<O>>
     where
-        F: Stream<Item = O> + Send + 'static,
+        F: AnyStream<Item = O>,
     {
         self.id = self.id.wrapping_add(1);
 
@@ -59,5 +57,26 @@ where
         let (_, res) = ready!(self.inner.poll_next_unpin(cx));
 
         Poll::Ready(res)
+    }
+
+    /// Returns an iterator over all streams of type `T` pushed via [`StreamSet::try_push`].
+    ///
+    /// If downcasting a stream to `T` fails it will be skipped in the iterator.
+    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = &T>
+    where
+        T: 'static,
+    {
+        self.inner.iter_of_type().map(|(_, item)| item)
+    }
+
+    /// Returns an iterator with mutable access over all streams of type `T`
+    /// pushed via [`StreamSet::try_push`].
+    ///
+    /// If downcasting a stream to `T` fails it will be skipped in the iterator.
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = &mut T>
+    where
+        T: 'static,
+    {
+        self.inner.iter_mut_of_type().map(|(_, item)| item)
     }
 }
