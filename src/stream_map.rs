@@ -115,17 +115,17 @@ where
         }
     }
 
-    pub fn iter<T>(&self) -> impl Iterator<Item = (&ID, &T)>
+    /// Returns an iterator over all streams whose inner type is `T`.
+    ///
+    /// If downcasting a stream to `T` fails it will be skipped in the iterator.
+    pub fn iter_typed<T>(&self) -> impl Iterator<Item = (&ID, &T)>
     where
         T: 'static,
     {
         self.inner.iter().filter_map(|a| {
             let pin = a.inner.inner.as_ref();
-            let pin = pin as Pin<&(dyn Any + Unpin + Send)>;
             let any = Pin::into_inner(pin) as &(dyn Any + Send);
-
             let inner = any.downcast_ref::<T>()?;
-
             Some((&a.key, inner))
         })
     }
@@ -327,7 +327,7 @@ mod tests {
         streams.try_push("1", FooStream).unwrap();
         streams.try_push("2", FooStream).unwrap();
 
-        assert_eq!(streams.iter::<FooStream>().count(), 2)
+        assert_eq!(streams.iter_typed::<FooStream>().count(), 2)
     }
 
     struct FooStream;
