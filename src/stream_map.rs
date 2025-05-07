@@ -129,6 +129,21 @@ where
             Some((&a.key, inner))
         })
     }
+
+    /// Returns an iterator with mutable access over all streams whose inner type is `T`.
+    ///
+    /// If downcasting a stream to `T` fails it will be skipped in the iterator.
+    pub fn iter_mut_typed<T>(&mut self) -> impl Iterator<Item = (&mut ID, &mut T)>
+    where
+        T: 'static,
+    {
+        self.inner.iter_mut().filter_map(|a| {
+            let pin = a.inner.inner.as_mut();
+            let any = Pin::into_inner(pin) as &mut (dyn Any + Send);
+            let inner = any.downcast_mut::<T>()?;
+            Some((&mut a.key, inner))
+        })
+    }
 }
 
 struct TimeoutStream<S> {
