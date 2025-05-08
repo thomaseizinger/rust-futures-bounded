@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::future::Future;
 use std::hash::Hash;
 use std::pin::Pin;
@@ -5,11 +6,10 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 use std::{future, mem};
 
-use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{FutureExt, StreamExt};
 
-use crate::{Delay, PushError, Timeout};
+use crate::{AnyFuture, BoxFuture, Delay, PushError, Timeout};
 
 /// Represents a map of [`Future`]s.
 ///
@@ -17,7 +17,7 @@ use crate::{Delay, PushError, Timeout};
 pub struct FuturesMap<ID, O> {
     make_delay: Box<dyn Fn() -> Delay + Send + Sync>,
     capacity: usize,
-    inner: FuturesUnordered<TaggedFuture<ID, TimeoutFuture<BoxFuture<'static, O>>>>,
+    inner: FuturesUnordered<TaggedFuture<ID, TimeoutFuture<BoxFuture<O>>>>,
     empty_waker: Option<Waker>,
     full_waker: Option<Waker>,
 }
@@ -48,10 +48,10 @@ where
     /// In that case, the returned error [PushError::Replaced] contains the old future.
     pub fn try_push<F>(&mut self, future_id: ID, future: F) -> Result<(), PushError<BoxFuture<O>>>
     where
-        F: Future<Output = O> + Send + 'static,
+        F: AnyFuture<Output = O>,
     {
         if self.inner.len() >= self.capacity {
-            return Err(PushError::BeyondCapacity(future.boxed()));
+            return Err(PushError::BeyondCapacity(Box::pin(future)));
         }
 
         if let Some(waker) = self.empty_waker.take() {
@@ -62,7 +62,7 @@ where
         self.inner.push(TaggedFuture {
             tag: future_id,
             inner: TimeoutFuture {
-                inner: future.boxed(),
+                inner: Box::pin(future),
                 timeout: (self.make_delay)(),
                 cancelled: false,
             },
@@ -73,10 +73,10 @@ where
         }
     }
 
-    pub fn remove(&mut self, id: ID) -> Option<BoxFuture<'static, O>> {
+    pub fn remove(&mut self, id: ID) -> Option<BoxFuture<O>> {
         let tagged = self.inner.iter_mut().find(|s| s.tag == id)?;
 
-        let inner = mem::replace(&mut tagged.inner.inner, future::pending().boxed());
+        let inner = mem::replace(&mut tagged.inner.inner, Box::pin(future::pending()));
         tagged.inner.cancelled = true;
 
         Some(inner)
@@ -121,6 +121,39 @@ where
                 Some((_, Err(TimeoutError::Cancelled))) => continue,
             }
         }
+    }
+
+    /// Returns an iterator over all futures of type `T` pushed via [`FuturesMap::try_push`].
+    /// The order that futures are returned is not guaranteed.
+    ///
+    /// If downcasting a future to `T` fails it will be skipped in the iterator.
+    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&ID, &T)>
+    where
+        T: 'static,
+    {
+        self.inner.iter().filter_map(|a| {
+            let pin = a.inner.inner.as_ref();
+            let any = Pin::into_inner(pin) as &(dyn Any + Send);
+            let inner = any.downcast_ref::<T>()?;
+            Some((&a.tag, inner))
+        })
+    }
+
+    /// Returns an iterator with mutable access over all futures of type `T` pushed via
+    /// [`FuturesMap::try_push`].
+    /// The order that futures are returned is not guaranteed.
+    ///
+    /// If downcasting a future to `T` fails it will be skipped in the iterator.
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&mut ID, &mut T)>
+    where
+        T: 'static,
+    {
+        self.inner.iter_mut().filter_map(|a| {
+            let pin = a.inner.inner.as_mut();
+            let any = Pin::into_inner(pin) as &mut (dyn Any + Send);
+            let inner = any.downcast_mut::<T>()?;
+            Some((&mut a.tag, inner))
+        })
     }
 }
 
@@ -277,6 +310,32 @@ mod tests {
         assert!(futures.contains("ID"));
         _ = futures.remove("ID");
         assert!(!futures.contains("ID"));
+    }
+
+    #[test]
+    fn can_iter_typed_futures() {
+        const N: usize = 10;
+        let mut futures = FuturesMap::new(|| Delay::futures_timer(Duration::from_millis(100)), N);
+        let mut sender = Vec::with_capacity(N);
+        for i in 0..N {
+            let (tx, rx) = oneshot::channel::<()>();
+            futures.try_push(format!("ID{i}"), rx).unwrap();
+            sender.push(tx);
+        }
+        assert_eq!(futures.iter_of_type::<oneshot::Receiver<()>>().count(), N);
+        for (i, (id, _)) in futures.iter_of_type::<oneshot::Receiver<()>>().enumerate() {
+            let expect_id = format!("ID{}", N - i - 1); // Reverse order.
+            assert_eq!(id, &expect_id);
+        }
+        assert!(!sender.iter().any(|tx| tx.is_canceled()));
+
+        for (_, rx) in futures.iter_mut_of_type::<oneshot::Receiver<()>>() {
+            rx.close();
+        }
+        assert!(sender.iter().all(|tx| tx.is_canceled()));
+
+        // Deliberately try a non-matching type
+        assert_eq!(futures.iter_mut_of_type::<()>().count(), 0);
     }
 
     struct Task {
