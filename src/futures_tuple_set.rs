@@ -70,7 +70,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "futures-timer"))]
 mod tests {
     use super::*;
     use futures_util::future::poll_fn;
