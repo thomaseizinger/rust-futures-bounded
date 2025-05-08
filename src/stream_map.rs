@@ -116,6 +116,7 @@ where
     }
 
     /// Returns an iterator over all streams of type `T` pushed via [`StreamMap::try_push`].
+    /// The order that streams are returned is not guaranteed.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
     pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&ID, &T)>
@@ -132,6 +133,7 @@ where
 
     /// Returns an iterator with mutable access over all streams of type `T`
     /// pushed via [`StreamMap::try_push`].
+    /// The order that streams are returned is not guaranteed.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
     pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&mut ID, &mut T)>
@@ -337,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn can_iter_named_streams() {
+    fn can_iter_typed_streams() {
         const N: usize = 10;
         let mut streams = StreamMap::new(|| Delay::futures_timer(Duration::from_millis(100)), N);
         let mut sender = Vec::with_capacity(N);
@@ -357,6 +359,9 @@ mod tests {
             rx.close();
         }
         assert!(sender.iter().all(|tx| tx.is_closed()));
+
+        // Deliberately try a non-matching type
+        assert_eq!(streams.iter_mut_of_type::<()>().count(), 0);
     }
 
     struct Task {
