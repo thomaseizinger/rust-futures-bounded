@@ -84,15 +84,25 @@ where
     /// This iterator returns futures in an arbitrary order, which may change.
     ///
     /// If downcasting a future to `T` fails it will be skipped in the iterator.
-    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&mut T, &D)>
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&mut T, &mut D)>
     where
         T: 'static,
     {
-        // TODO: work out how to return &mut D here, without a
-        // "captured variable cannot escape `FnMut` closure body" compiler error
-        self.inner
-            .iter_mut_of_type()
-            .map(|(id, item)| (item, self.data.get(id).expect("must have data for future")))
+        // We need to convince the borrow checker that we are only returning one mutable reference
+        // to each data item. We can do this efficiently by creating a hashmap of mutable
+        // references, then removing each item from the hashmap as we iterate over the futures.
+        let mut mut_refs_data = self
+            .data
+            .iter_mut()
+            .map(|(id, data)| (*id, data))
+            .collect::<HashMap<u32, &mut D>>();
+
+        self.inner.iter_mut_of_type().map(move |(id, item)| {
+            let data = mut_refs_data
+                .remove(id)
+                .expect("each future has a unique id, must have data for future");
+            (item, data)
+        })
     }
 }
 
