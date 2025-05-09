@@ -67,7 +67,7 @@ where
     }
 
     /// Returns an iterator over all futures of type `T` pushed via [`FuturesTupleSet::try_push`].
-    /// The order that futures are returned is not guaranteed.
+    /// This iterator returns futures in an arbitrary order, which may change.
     ///
     /// If downcasting a future to `T` fails it will be skipped in the iterator.
     pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&T, &D)>
@@ -81,7 +81,7 @@ where
 
     /// Returns an iterator with mutable access over all futures of type `T`
     /// pushed via [`FuturesTupleSet::try_push`].
-    /// The order that futures are returned is not guaranteed.
+    /// This iterator returns futures in an arbitrary order, which may change.
     ///
     /// If downcasting a future to `T` fails it will be skipped in the iterator.
     pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&mut T, &D)>
