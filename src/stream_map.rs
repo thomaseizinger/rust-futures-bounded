@@ -136,7 +136,7 @@ where
     /// This iterator returns streams in an arbitrary order, which may change.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
-    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&mut ID, &mut T)>
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&ID, &mut T)>
     where
         T: 'static,
     {
@@ -144,7 +144,7 @@ where
             let pin = a.inner.inner.as_mut();
             let any = Pin::into_inner(pin) as &mut (dyn Any + Send);
             let inner = any.downcast_mut::<T>()?;
-            Some((&mut a.key, inner))
+            Some((&a.key, inner))
         })
     }
 }

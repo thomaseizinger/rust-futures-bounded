@@ -76,7 +76,7 @@ where
     {
         self.inner
             .iter_of_type()
-            .map(|(id, item)| (item, self.data.get(&id).expect("must have data for future")))
+            .map(|(id, item)| (item, self.data.get(id).expect("must have data for future")))
     }
 
     /// Returns an iterator with mutable access over all futures of type `T`
