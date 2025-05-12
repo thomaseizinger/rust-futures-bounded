@@ -60,6 +60,7 @@ where
     }
 
     /// Returns an iterator over all streams of type `T` pushed via [`StreamSet::try_push`].
+    /// This iterator returns streams in an arbitrary order, which may change.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
     pub fn iter_of_type<T>(&self) -> impl Iterator<Item = &T>
@@ -71,6 +72,7 @@ where
 
     /// Returns an iterator with mutable access over all streams of type `T`
     /// pushed via [`StreamSet::try_push`].
+    /// This iterator returns streams in an arbitrary order, which may change.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
     pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = &mut T>

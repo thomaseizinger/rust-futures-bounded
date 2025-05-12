@@ -1,9 +1,6 @@
-use std::future::Future;
 use std::task::{ready, Context, Poll};
 
-use futures_util::future::BoxFuture;
-
-use crate::{Delay, FuturesMap, PushError, Timeout};
+use crate::{AnyFuture, BoxFuture, Delay, FuturesMap, PushError, Timeout};
 
 /// Represents a list of [Future]s.
 ///
@@ -33,7 +30,7 @@ where
     /// In that case, the future is not added to the set.
     pub fn try_push<F>(&mut self, future: F) -> Result<(), BoxFuture<O>>
     where
-        F: Future<Output = O> + Send + 'static,
+        F: AnyFuture<Output = O>,
     {
         self.id = self.id.wrapping_add(1);
 
@@ -60,5 +57,28 @@ where
         let (_, res) = ready!(self.inner.poll_unpin(cx));
 
         Poll::Ready(res)
+    }
+
+    /// Returns an iterator over all futures of type `T` pushed via [`FuturesSet::try_push`].
+    /// This iterator returns futures in an arbitrary order, which may change.
+    ///
+    /// If downcasting a future to `T` fails it will be skipped in the iterator.
+    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = &T>
+    where
+        T: 'static,
+    {
+        self.inner.iter_of_type().map(|(_, item)| item)
+    }
+
+    /// Returns an iterator with mutable access over all futures of type `T`
+    /// pushed via [`FuturesSet::try_push`].
+    /// This iterator returns futures in an arbitrary order, which may change.
+    ///
+    /// If downcasting a future to `T` fails it will be skipped in the iterator.
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = &mut T>
+    where
+        T: 'static,
+    {
+        self.inner.iter_mut_of_type().map(|(_, item)| item)
     }
 }
