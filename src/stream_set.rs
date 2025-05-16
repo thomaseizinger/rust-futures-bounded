@@ -1,4 +1,7 @@
-use std::task::{ready, Context, Poll};
+use std::{
+    pin::Pin,
+    task::{ready, Context, Poll},
+};
 
 use crate::{AnyStream, BoxStream, Delay, PushError, StreamMap, Timeout};
 
@@ -63,7 +66,7 @@ where
     /// This iterator returns streams in an arbitrary order, which may change.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
-    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = &T>
+    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = Pin<&T>>
     where
         T: 'static,
     {
@@ -75,7 +78,7 @@ where
     /// This iterator returns streams in an arbitrary order, which may change.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
-    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = &mut T>
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = Pin<&mut T>>
     where
         T: 'static,
     {
