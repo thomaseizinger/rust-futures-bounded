@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 
 use crate::{AnyFuture, BoxFuture, Delay, FuturesMap, PushError, Timeout};
@@ -70,7 +71,7 @@ where
     /// This iterator returns futures in an arbitrary order, which may change.
     ///
     /// If downcasting a future to `T` fails it will be skipped in the iterator.
-    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&T, &D)>
+    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (Pin<&T>, &D)>
     where
         T: 'static,
     {
@@ -84,7 +85,7 @@ where
     /// This iterator returns futures in an arbitrary order, which may change.
     ///
     /// If downcasting a future to `T` fails it will be skipped in the iterator.
-    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&mut T, &mut D)>
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (Pin<&mut T>, &mut D)>
     where
         T: 'static,
     {
@@ -150,7 +151,7 @@ mod tests {
         }
         assert!(!sender.iter().any(|tx| tx.is_canceled()));
 
-        for (rx, _) in futures.iter_mut_of_type::<oneshot::Receiver<()>>() {
+        for (mut rx, _) in futures.iter_mut_of_type::<oneshot::Receiver<()>>() {
             rx.close();
         }
         assert!(sender.iter().all(|tx| tx.is_canceled()));

@@ -59,15 +59,15 @@ impl<T> fmt::Debug for PushError<T> {
 impl std::error::Error for Timeout {}
 
 #[doc(hidden)]
-pub trait AnyStream: futures_util::Stream + Any + Unpin + Send {}
+pub trait AnyStream: futures_util::Stream + Any + Send {}
 
-impl<T> AnyStream for T where T: futures_util::Stream + Any + Unpin + Send {}
+impl<T> AnyStream for T where T: futures_util::Stream + Any + Send {}
 
 type BoxStream<T> = Pin<Box<dyn AnyStream<Item = T> + Send>>;
 
 #[doc(hidden)]
-pub trait AnyFuture: std::future::Future + Any + Unpin + Send {}
+pub trait AnyFuture: std::future::Future + Any + Send {}
 
-impl<T> AnyFuture for T where T: std::future::Future + Any + Unpin + Send {}
+impl<T> AnyFuture for T where T: std::future::Future + Any + Send {}
 
 type BoxFuture<T> = Pin<Box<dyn AnyFuture<Output = T> + Send>>;

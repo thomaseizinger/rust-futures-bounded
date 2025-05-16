@@ -119,15 +119,22 @@ where
     /// This iterator returns streams in an arbitrary order, which may change.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
-    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&ID, &T)>
+    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&ID, Pin<&T>)>
     where
         T: 'static,
     {
         self.inner.iter().filter_map(|a| {
             let pin = a.inner.inner.as_ref();
-            let any = Pin::into_inner(pin) as &(dyn Any + Send);
+
+            // Safety: We are only temporarily manipulating the pointer and pinning it again further down.
+            let pointer = unsafe { Pin::into_inner_unchecked(pin) };
+            let any = pointer as &(dyn Any + Send);
             let inner = any.downcast_ref::<T>()?;
-            Some((&a.key, inner))
+
+            // Safety: The pointer is already pinned.
+            let pinned = unsafe { Pin::new_unchecked(inner) };
+
+            Some((&a.key, pinned))
         })
     }
 
@@ -136,15 +143,22 @@ where
     /// This iterator returns streams in an arbitrary order, which may change.
     ///
     /// If downcasting a stream to `T` fails it will be skipped in the iterator.
-    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&ID, &mut T)>
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&ID, Pin<&mut T>)>
     where
         T: 'static,
     {
         self.inner.iter_mut().filter_map(|a| {
             let pin = a.inner.inner.as_mut();
-            let any = Pin::into_inner(pin) as &mut (dyn Any + Send);
+
+            // Safety: We are only temporarily manipulating the pointer and pinning it again further down.
+            let pointer = unsafe { Pin::into_inner_unchecked(pin) };
+            let any = pointer as &mut (dyn Any + Send);
             let inner = any.downcast_mut::<T>()?;
-            Some((&a.key, inner))
+
+            // Safety: The pointer is already pinned.
+            let pinned = unsafe { Pin::new_unchecked(inner) };
+
+            Some((&a.key, pinned))
         })
     }
 }
@@ -355,7 +369,7 @@ mod tests {
         }
         assert!(!sender.iter().any(|tx| tx.is_closed()));
 
-        for (_, rx) in streams.iter_mut_of_type::<mpsc::Receiver<()>>() {
+        for (_, mut rx) in streams.iter_mut_of_type::<mpsc::Receiver<()>>() {
             rx.close();
         }
         assert!(sender.iter().all(|tx| tx.is_closed()));
