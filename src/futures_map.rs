@@ -134,7 +134,8 @@ where
         self.inner.iter().filter_map(|a| {
             let pin = a.inner.inner.as_ref();
 
-            // Safety: We are only temporarily manipulating the pointer and pinning it again further down.
+            // Safety: We are only changing the type of the pointer, and pinning it again before returning it.
+            // None of the fields are accessed.
             let pointer = unsafe { Pin::into_inner_unchecked(pin) };
             let any = pointer as &(dyn Any + Send);
             let inner = any.downcast_ref::<T>()?;
