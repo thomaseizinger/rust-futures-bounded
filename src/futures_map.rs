@@ -141,7 +141,8 @@ where
             // SAFETY: this returns `None` and drops a `&T`, which is safe because dropping a reference is trivial.
             let inner = any.downcast_ref::<T>()?;
 
-            // Safety: The pointer is already pinned.
+            // Safety: The pointer is already pinned, and will remain pinned for its entire lifetime,
+            // because we return a `Pin<&T>`.
             let pinned = unsafe { Pin::new_unchecked(inner) };
 
             Some((&a.tag, pinned))
