@@ -138,6 +138,7 @@ where
             // None of the fields are accessed.
             let pointer = unsafe { Pin::into_inner_unchecked(pin) };
             let any = pointer as &(dyn Any + Send);
+            // SAFETY: this returns `None` and drops a `&T`, which is safe because dropping a reference is trivial.
             let inner = any.downcast_ref::<T>()?;
 
             // Safety: The pointer is already pinned.
