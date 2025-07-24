@@ -1,9 +1,9 @@
 ## Next release
 
 - Allow iterating through future and stream collections.
-  Some types may need to be [pinned](https://docs.rs/rustc-std-workspace-std/latest/std/pin/macro.pin.html)
-  before being passed to `try_push`. This is a breaking change.
-  See [PR 11](https://github.com/thomaseizinger/rust-futures-bounded/pull/11).
+  See [PR 10](https://github.com/thomaseizinger/rust-futures-bounded/pull/10),
+  [PR 11](https://github.com/thomaseizinger/rust-futures-bounded/pull/11)
+  and [PR 12](https://github.com/thomaseizinger/rust-futures-bounded/pull/12).
 
 ## 0.3.0
 

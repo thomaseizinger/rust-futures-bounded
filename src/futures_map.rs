@@ -127,15 +127,22 @@ where
     /// This iterator returns futures in an arbitrary order, which may change.
     ///
     /// If downcasting a future to `T` fails it will be skipped in the iterator.
-    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&ID, &T)>
+    pub fn iter_of_type<T>(&self) -> impl Iterator<Item = (&ID, Pin<&T>)>
     where
         T: 'static,
     {
         self.inner.iter().filter_map(|a| {
-            let pin = a.inner.inner.as_ref();
-            let any = Pin::into_inner(pin) as &(dyn Any + Send);
+            let pointer = a.inner.inner.as_ref().get_ref();
+
+            let any = pointer as &(dyn Any + Send);
+            // SAFETY: this returns `None` and drops a `&T`, which is safe because dropping a reference is trivial.
             let inner = any.downcast_ref::<T>()?;
-            Some((&a.tag, inner))
+
+            // Safety: The pointer is already pinned, and will remain pinned for its entire lifetime,
+            // because we return a `Pin<&T>`.
+            let pinned = unsafe { Pin::new_unchecked(inner) };
+
+            Some((&a.tag, pinned))
         })
     }
 
@@ -144,15 +151,22 @@ where
     /// This iterator returns futures in an arbitrary order, which may change.
     ///
     /// If downcasting a future to `T` fails it will be skipped in the iterator.
-    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&ID, &mut T)>
+    pub fn iter_mut_of_type<T>(&mut self) -> impl Iterator<Item = (&ID, Pin<&mut T>)>
     where
         T: 'static,
     {
         self.inner.iter_mut().filter_map(|a| {
             let pin = a.inner.inner.as_mut();
-            let any = Pin::into_inner(pin) as &mut (dyn Any + Send);
+
+            // Safety: We are only temporarily manipulating the pointer and pinning it again further down.
+            let pointer = unsafe { Pin::into_inner_unchecked(pin) };
+            let any = pointer as &mut (dyn Any + Send);
             let inner = any.downcast_mut::<T>()?;
-            Some((&a.tag, inner))
+
+            // Safety: The pointer is already pinned.
+            let pinned = unsafe { Pin::new_unchecked(inner) };
+
+            Some((&a.tag, pinned))
         })
     }
 }
@@ -329,7 +343,7 @@ mod tests {
         }
         assert!(!sender.iter().any(|tx| tx.is_canceled()));
 
-        for (_, rx) in futures.iter_mut_of_type::<oneshot::Receiver<()>>() {
+        for (_, mut rx) in futures.iter_mut_of_type::<oneshot::Receiver<()>>() {
             rx.close();
         }
         assert!(sender.iter().all(|tx| tx.is_canceled()));
