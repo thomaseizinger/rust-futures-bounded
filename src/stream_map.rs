@@ -124,10 +124,8 @@ where
         T: 'static,
     {
         self.inner.iter().filter_map(|a| {
-            let pin = a.inner.inner.as_ref();
+            let pointer = a.inner.inner.as_ref().get_ref();
 
-            // Safety: We are only temporarily manipulating the pointer and pinning it again further down.
-            let pointer = unsafe { Pin::into_inner_unchecked(pin) };
             let any = pointer as &(dyn Any + Send);
             let inner = any.downcast_ref::<T>()?;
 
