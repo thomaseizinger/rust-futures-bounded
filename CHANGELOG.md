@@ -1,4 +1,4 @@
-## Next release
+## 0.3.1
 
 - Allow iterating through future and stream collections.
   See [PR 10](https://github.com/thomaseizinger/rust-futures-bounded/pull/10),
